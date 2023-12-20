@@ -1,0 +1,1472 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "azuredatafactory-937"
+		},
+		"sqlserver_linkedservice_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'sqlserver_linkedservice'",
+			"defaultValue": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=;Initial Catalog=azuresqldb937;Server=tcp:azuresql-server-937.database.windows.net,1433;TrustServerCertificate=False;Authentication=\"Active Directory Default\""
+		},
+		"stage_storage_linkedservice_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'stage_storage_linkedservice'"
+		},
+		"akv_linkedservice_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://azurevault937.vault.azure.net/"
+		},
+		"sftp_linkedservice_properties_typeProperties_host": {
+			"type": "string",
+			"defaultValue": "@{linkedService().Host}"
+		},
+		"sftp_linkedservice_properties_typeProperties_userName": {
+			"type": "string",
+			"defaultValue": "@{linkedService().User}"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/sql_to_sftp_pipeline')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Get Configurations",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "db_config_source",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Foreach Config Record",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "Get Configurations",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('Get Configurations').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Process Data",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "sqlserver_linkedservice",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "@item().ExecutionQuery",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "Transfer Data to SFTP",
+									"type": "ExecuteDataFlow",
+									"dependsOn": [
+										{
+											"activity": "Capture Timestamp",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataflow": {
+											"referenceName": "datafile_to_sftp_dataflow",
+											"type": "DataFlowReference",
+											"parameters": {
+												"FileName": {
+													"value": "'@{item().FileName}'",
+													"type": "Expression"
+												},
+												"FileExtension": {
+													"value": "'@{item().FileExtension}'",
+													"type": "Expression"
+												},
+												"FileNamePostFixFormat": {
+													"value": "'@{variables('DateFormat')}'",
+													"type": "Expression"
+												},
+												"TextQualifier": {
+													"value": "'@{item().TextQualifier}'",
+													"type": "Expression"
+												}
+											},
+											"datasetParameters": {
+												"source1": {
+													"StageTableName": "@item().StageTableName",
+													"StageTableSchema": "@item().StageTableSchema"
+												},
+												"sink1": {
+													"Host": "@item().FTPHost",
+													"Port": "@int(item().FTPPort)",
+													"User": "@item().FTPUser",
+													"SecretName": "@item().FTPAzureVaultSecretName",
+													"FileName": "@item().FileName",
+													"FileExtension": "@item().FileExtension",
+													"FileDelimeter": "@item().FileDelimeter",
+													"TextQualifier": "@item().TextQualifier"
+												}
+											}
+										},
+										"staging": {},
+										"compute": {
+											"coreCount": 8,
+											"computeType": "General"
+										},
+										"traceLevel": "Fine"
+									}
+								},
+								{
+									"name": "Capture Timestamp",
+									"type": "SetVariable",
+									"dependsOn": [
+										{
+											"activity": "Process Data",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "DateFormat",
+										"value": {
+											"value": "@formatDateTime(utcNow(), item().FileNamePostFixFormat)\n \n",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Transfer COT File",
+									"type": "IfCondition",
+									"dependsOn": [
+										{
+											"activity": "Transfer Data to SFTP",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"expression": {
+											"value": "@equals(item().IncludeCOTFile, true)",
+											"type": "Expression"
+										},
+										"ifTrueActivities": [
+											{
+												"name": "Build COT File",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"additionalColumns": [
+															{
+																"name": "TotalRows",
+																"value": {
+																	"value": "@activity('Transfer Data to SFTP').output.runStatus.metrics.sink1.rowsWritten ",
+																	"type": "Expression"
+																}
+															}
+														],
+														"storeSettings": {
+															"type": "AzureBlobStorageReadSettings",
+															"recursive": false,
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobStorageWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"mappings": [
+															{
+																"source": {
+																	"name": "TotalRows",
+																	"type": "String"
+																},
+																"sink": {
+																	"name": "TotalRows"
+																}
+															}
+														],
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dummy_cot_file",
+														"type": "DatasetReference",
+														"parameters": {}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "cot_output_file",
+														"type": "DatasetReference",
+														"parameters": {
+															"FileName": {
+																"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.COT'\n)\n\n",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Transfer COT to SFTP",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [
+													{
+														"activity": "Build COT File",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "cot_file_to_sftp_dataflow",
+														"type": "DataFlowReference",
+														"parameters": {
+															"FileName": {
+																"value": "'@{concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.COT'\n)\n}'",
+																"type": "Expression"
+															}
+														},
+														"datasetParameters": {
+															"source1": {
+																"FileName": {
+																	"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.COT'\n)\n",
+																	"type": "Expression"
+																}
+															},
+															"sink1": {
+																"Host": "@item().FTPHost",
+																"Port": "@int(item().FTPPort)",
+																"User": "@item().FTPUser",
+																"SecretName": "@item().FTPAzureVaultSecretName",
+																"FileName": {
+																	"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.COT'\n)\n",
+																	"type": "Expression"
+																}
+															}
+														}
+													},
+													"staging": {},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "General"
+													},
+													"traceLevel": "Fine"
+												}
+											},
+											{
+												"name": "Delete COT File",
+												"type": "Delete",
+												"dependsOn": [
+													{
+														"activity": "Transfer COT to SFTP",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataset": {
+														"referenceName": "cot_output_file",
+														"type": "DatasetReference",
+														"parameters": {
+															"FileName": {
+																"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.COT'\n)\n",
+																"type": "Expression"
+															}
+														}
+													},
+													"logStorageSettings": {
+														"linkedServiceName": {
+															"referenceName": "stage_storage_linkedservice",
+															"type": "LinkedServiceReference"
+														},
+														"path": "logs"
+													},
+													"enableLogging": true,
+													"storeSettings": {
+														"type": "AzureBlobStorageReadSettings",
+														"recursive": true,
+														"enablePartitionDiscovery": false
+													}
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "Transfer TRG File",
+									"type": "IfCondition",
+									"dependsOn": [
+										{
+											"activity": "Transfer COT File",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"expression": {
+											"value": "@equals(item().IncludeTriggerFile, true)",
+											"type": "Expression"
+										},
+										"ifTrueActivities": [
+											{
+												"name": "Build Trigger File",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "DelimitedTextSource",
+														"storeSettings": {
+															"type": "AzureBlobStorageReadSettings",
+															"recursive": false,
+															"enablePartitionDiscovery": false
+														},
+														"formatSettings": {
+															"type": "DelimitedTextReadSettings"
+														}
+													},
+													"sink": {
+														"type": "DelimitedTextSink",
+														"storeSettings": {
+															"type": "AzureBlobStorageWriteSettings"
+														},
+														"formatSettings": {
+															"type": "DelimitedTextWriteSettings",
+															"quoteAllText": true,
+															"fileExtension": ".txt"
+														}
+													},
+													"enableStaging": false,
+													"translator": {
+														"type": "TabularTranslator",
+														"typeConversion": true,
+														"typeConversionSettings": {
+															"allowDataTruncation": true,
+															"treatBooleanAsNumber": false
+														}
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "dummy_trg_file",
+														"type": "DatasetReference",
+														"parameters": {}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "cot_output_file",
+														"type": "DatasetReference",
+														"parameters": {
+															"FileName": {
+																"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.TRG'\n)\n\n",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "Transfer TRG to SFTP",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [
+													{
+														"activity": "Build Trigger File",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "trg_file_to_sftp_dataflow",
+														"type": "DataFlowReference",
+														"parameters": {
+															"FileName": {
+																"value": "'@{concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.TRG'\n)\n}'",
+																"type": "Expression"
+															}
+														},
+														"datasetParameters": {
+															"source1": {
+																"FileName": {
+																	"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.TRG'\n)\n",
+																	"type": "Expression"
+																}
+															},
+															"sink1": {
+																"Host": "@item().FTPHost",
+																"Port": "@int(item().FTPPort)",
+																"User": "@item().FTPUser",
+																"SecretName": "@item().FTPAzureVaultSecretName",
+																"FileName": {
+																	"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.TRG'\n)\n",
+																	"type": "Expression"
+																}
+															}
+														}
+													},
+													"staging": {},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "General"
+													},
+													"traceLevel": "Fine"
+												}
+											},
+											{
+												"name": "Delete TRG File",
+												"type": "Delete",
+												"dependsOn": [
+													{
+														"activity": "Transfer TRG to SFTP",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "0.12:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"dataset": {
+														"referenceName": "trg_output_file",
+														"type": "DatasetReference",
+														"parameters": {
+															"FileName": {
+																"value": "@concat(\n    item().FileName, \n    '_',\n    variables('DateFormat'),\n    '.TRG'\n)\n\n",
+																"type": "Expression"
+															}
+														}
+													},
+													"logStorageSettings": {
+														"linkedServiceName": {
+															"referenceName": "stage_storage_linkedservice",
+															"type": "LinkedServiceReference"
+														},
+														"path": "logs"
+													},
+													"enableLogging": true,
+													"storeSettings": {
+														"type": "AzureBlobStorageReadSettings",
+														"recursive": true,
+														"enablePartitionDiscovery": false
+													}
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "Update Config Record",
+									"type": "Script",
+									"dependsOn": [
+										{
+											"activity": "Transfer TRG File",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "sqlserver_linkedservice",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "@concat(\n'Update [SalesLT].[OutboundFilesConfig] Set LoadStatus = ''Complete''\n,RecordUpdateDate = CONVERT(datetime, ''', utcNow('yyyy-MM-ddTHH:mm:ss.fff'),\n''', 126)\n Where configID = '\n, item().configID\n)",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"FileNamePostFixFormat": {
+						"type": "String"
+					},
+					"DateFormat": {
+						"type": "String"
+					},
+					"FullFileName": {
+						"type": "String"
+					}
+				},
+				"annotations": [],
+				"lastPublishTime": "2023-12-20T00:47:36Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/db_config_source')]",
+				"[concat(variables('factoryId'), '/linkedServices/sqlserver_linkedservice')]",
+				"[concat(variables('factoryId'), '/dataflows/datafile_to_sftp_dataflow')]",
+				"[concat(variables('factoryId'), '/datasets/dummy_cot_file')]",
+				"[concat(variables('factoryId'), '/datasets/cot_output_file')]",
+				"[concat(variables('factoryId'), '/dataflows/cot_file_to_sftp_dataflow')]",
+				"[concat(variables('factoryId'), '/datasets/dummy_trg_file')]",
+				"[concat(variables('factoryId'), '/dataflows/trg_file_to_sftp_dataflow')]",
+				"[concat(variables('factoryId'), '/datasets/trg_output_file')]",
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/cot_output_file')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "stage_storage_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"FileName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						},
+						"container": "stage"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": ""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/db_config_source')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "sqlserver_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [
+					{
+						"name": "ConfigID",
+						"type": "int",
+						"precision": 10
+					},
+					{
+						"name": "LoadStatus",
+						"type": "varchar"
+					},
+					{
+						"name": "RecordUpdateDate",
+						"type": "datetime",
+						"precision": 23,
+						"scale": 3
+					},
+					{
+						"name": "FileName",
+						"type": "varchar"
+					},
+					{
+						"name": "FileNamePostFixFormat",
+						"type": "varchar"
+					},
+					{
+						"name": "FileExtension",
+						"type": "varchar"
+					},
+					{
+						"name": "FileDelimeter",
+						"type": "varchar"
+					},
+					{
+						"name": "TextQualifier",
+						"type": "varchar"
+					},
+					{
+						"name": "FTPPath",
+						"type": "varchar"
+					},
+					{
+						"name": "FTPHost",
+						"type": "varchar"
+					},
+					{
+						"name": "FTPPort",
+						"type": "varchar"
+					},
+					{
+						"name": "FTPUser",
+						"type": "varchar"
+					},
+					{
+						"name": "FTPAzureVaultSecretName",
+						"type": "varchar"
+					},
+					{
+						"name": "AuditQuery",
+						"type": "varchar"
+					},
+					{
+						"name": "ExecutionQuery",
+						"type": "varchar"
+					},
+					{
+						"name": "StageTableSchema",
+						"type": "varchar"
+					},
+					{
+						"name": "StageTableName",
+						"type": "varchar"
+					},
+					{
+						"name": "IncludeTriggerFile",
+						"type": "bit"
+					},
+					{
+						"name": "IncludeCOTFile",
+						"type": "bit"
+					}
+				],
+				"typeProperties": {
+					"schema": "SalesLT",
+					"table": "vw_OutboundFilesConfig"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/sqlserver_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/db_data_source')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "sqlserver_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"StageTableName": {
+						"type": "string"
+					},
+					"StageTableSchema": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().StageTableSchema",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().StageTableName",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/sqlserver_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dummy_cot_file')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "stage_storage_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": "dummyfile.txt",
+						"container": "stage"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": ""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dummy_trg_file')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "stage_storage_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": "dummyfile2.txt",
+						"container": "stage"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": false,
+					"quoteChar": ""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sftp_cot_file_sink')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "sftp_linkedservice",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"Host": {
+							"value": "@dataset().Host",
+							"type": "Expression"
+						},
+						"Port": {
+							"value": "@dataset().Port",
+							"type": "Expression"
+						},
+						"User": {
+							"value": "@dataset().User",
+							"type": "Expression"
+						},
+						"SecretName": {
+							"value": "@dataset().SecretName",
+							"type": "Expression"
+						}
+					}
+				},
+				"parameters": {
+					"Host": {
+						"type": "string"
+					},
+					"Port": {
+						"type": "int"
+					},
+					"User": {
+						"type": "string"
+					},
+					"SecretName": {
+						"type": "string"
+					},
+					"FileName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "SftpLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						}
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": false,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/sftp_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sftp_datafile_sink')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "sftp_linkedservice",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"Host": {
+							"value": "@dataset().Host",
+							"type": "Expression"
+						},
+						"Port": {
+							"value": "@dataset().Port",
+							"type": "Expression"
+						},
+						"User": {
+							"value": "@dataset().User",
+							"type": "Expression"
+						},
+						"SecretName": {
+							"value": "@dataset().SecretName",
+							"type": "Expression"
+						}
+					}
+				},
+				"parameters": {
+					"Host": {
+						"type": "string"
+					},
+					"Port": {
+						"type": "int"
+					},
+					"User": {
+						"type": "string"
+					},
+					"SecretName": {
+						"type": "string"
+					},
+					"FileName": {
+						"type": "string"
+					},
+					"FileExtension": {
+						"type": "string"
+					},
+					"FileDelimeter": {
+						"type": "string"
+					},
+					"TextQualifier": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "SftpLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						}
+					},
+					"columnDelimiter": {
+						"value": "@dataset().FileDelimeter",
+						"type": "Expression"
+					},
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": {
+						"value": "@dataset().TextQualifier",
+						"type": "Expression"
+					}
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/sftp_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sftp_trg_file_sink')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "sftp_linkedservice",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"Host": {
+							"value": "@dataset().Host",
+							"type": "Expression"
+						},
+						"Port": {
+							"value": "@dataset().Port",
+							"type": "Expression"
+						},
+						"User": {
+							"value": "@dataset().User",
+							"type": "Expression"
+						},
+						"SecretName": {
+							"value": "@dataset().SecretName",
+							"type": "Expression"
+						}
+					}
+				},
+				"parameters": {
+					"Host": {
+						"type": "string"
+					},
+					"Port": {
+						"type": "int"
+					},
+					"User": {
+						"type": "string"
+					},
+					"SecretName": {
+						"type": "string"
+					},
+					"FileName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "SftpLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						}
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/sftp_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/storage_datafile_source')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "stage_storage_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"FileName": {
+						"type": "string"
+					},
+					"FileExtension": {
+						"type": "string"
+					},
+					"FileDelimeter": {
+						"type": "string"
+					},
+					"TextQualifier": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"container": "stage"
+					},
+					"columnDelimiter": {
+						"value": "@dataset().FileDelimeter",
+						"type": "Expression"
+					},
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": {
+						"value": "@dataset().TextQualifier",
+						"type": "Expression"
+					}
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/trg_output_file')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "stage_storage_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"FileName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						},
+						"container": "stage"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": ""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/stage_storage_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/akv_linkedservice')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureKeyVault",
+				"typeProperties": {
+					"baseUrl": "[parameters('akv_linkedservice_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sftp_linkedservice')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"parameters": {
+					"Host": {
+						"type": "string"
+					},
+					"Port": {
+						"type": "int"
+					},
+					"User": {
+						"type": "string"
+					},
+					"SecretName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Sftp",
+				"typeProperties": {
+					"host": "[parameters('sftp_linkedservice_properties_typeProperties_host')]",
+					"port": "@linkedService().Port",
+					"skipHostKeyValidation": true,
+					"authenticationType": "Basic",
+					"userName": "[parameters('sftp_linkedservice_properties_typeProperties_userName')]",
+					"password": {
+						"type": "AzureKeyVaultSecret",
+						"store": {
+							"referenceName": "akv_linkedservice",
+							"type": "LinkedServiceReference"
+						},
+						"secretName": {
+							"value": "@linkedService().SecretName",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/akv_linkedservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sqlserver_linkedservice')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDatabase",
+				"typeProperties": {
+					"connectionString": "[parameters('sqlserver_linkedservice_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/stage_storage_linkedservice')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobStorage",
+				"typeProperties": {
+					"connectionString": "[parameters('stage_storage_linkedservice_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/cot_file_to_sftp_dataflow')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "trg_output_file",
+								"type": "DatasetReference"
+							},
+							"name": "source1"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "sftp_trg_file_sink",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [],
+					"scriptLines": [
+						"parameters{",
+						"     FileName as string",
+						"}",
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false) ~> source1",
+						"source1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     partitionFileNames:[($FileName)],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/trg_output_file')]",
+				"[concat(variables('factoryId'), '/datasets/sftp_trg_file_sink')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/datafile_to_sftp_dataflow')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "db_data_source",
+								"type": "DatasetReference"
+							},
+							"name": "source1"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "sftp_datafile_sink",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [],
+					"scriptLines": [
+						"parameters{",
+						"     FileName as string,",
+						"     FileExtension as string,",
+						"     FileNamePostFixFormat as string,",
+						"     TextQualifier as string",
+						"}",
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     isolationLevel: 'READ_UNCOMMITTED',",
+						"     format: 'table') ~> source1",
+						"source1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     partitionFileNames:[(concat($FileName, '_', $FileNamePostFixFormat, $FileExtension))],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     quoteAll: (iif($TextQualifier == '', false(), true())),",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/db_data_source')]",
+				"[concat(variables('factoryId'), '/datasets/sftp_datafile_sink')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/sql_to_storage_dataflow')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "db_data_source",
+								"type": "DatasetReference"
+							},
+							"name": "source1"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "storage_datafile_source",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [],
+					"scriptLines": [
+						"parameters{",
+						"     FileName as string,",
+						"     FileExtension as string,",
+						"     FileNamePostFixFormat as string,",
+						"     TextQualifier as string",
+						"}",
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     isolationLevel: 'READ_UNCOMMITTED',",
+						"     format: 'table') ~> source1",
+						"source1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     partitionFileNames:[(concat($FileName, '_', $FileNamePostFixFormat, $FileExtension))],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     quoteAll: (iif($TextQualifier == '', false(), true())),",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/db_data_source')]",
+				"[concat(variables('factoryId'), '/datasets/storage_datafile_source')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/trg_file_to_sftp_dataflow')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "trg_output_file",
+								"type": "DatasetReference"
+							},
+							"name": "source1"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "sftp_trg_file_sink",
+								"type": "DatasetReference"
+							},
+							"name": "sink1"
+						}
+					],
+					"transformations": [],
+					"scriptLines": [
+						"parameters{",
+						"     FileName as string",
+						"}",
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false) ~> source1",
+						"source1 sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     partitionFileNames:[($FileName)],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     partitionBy('hash', 1)) ~> sink1"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/trg_output_file')]",
+				"[concat(variables('factoryId'), '/datasets/sftp_trg_file_sink')]"
+			]
+		}
+	]
+}

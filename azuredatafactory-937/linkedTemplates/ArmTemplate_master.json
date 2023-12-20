@@ -1,0 +1,78 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "azuredatafactory-937"
+		},
+		"sqlserver_linkedservice_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'sqlserver_linkedservice'",
+			"defaultValue": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=;Initial Catalog=azuresqldb937;Server=tcp:azuresql-server-937.database.windows.net,1433;TrustServerCertificate=False;Authentication=\"Active Directory Default\""
+		},
+		"stage_storage_linkedservice_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'stage_storage_linkedservice'"
+		},
+		"akv_linkedservice_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://azurevault937.vault.azure.net/"
+		},
+		"sftp_linkedservice_properties_typeProperties_host": {
+			"type": "string",
+			"defaultValue": "@{linkedService().Host}"
+		},
+		"sftp_linkedservice_properties_typeProperties_userName": {
+			"type": "string",
+			"defaultValue": "@{linkedService().User}"
+		},
+		"containerUri": {
+			"type": "string",
+			"metadata": "URI to storage account containing linked ARM templates"
+		},
+		"containerSasToken": {
+			"type": "string",
+			"metadata": "Sas token to storage account containing linked ARM templates"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "azuredatafactory-937_ArmTemplate_0",
+			"type": "Microsoft.Resources/deployments",
+			"apiVersion": "2018-02-01",
+			"properties": {
+				"mode": "incremental",
+				"templateLink": {
+					"uri": "[concat(parameters('containerUri'), '/ArmTemplate_0.json', parameters('containerSasToken'))]",
+					"contentVersion": "1.0.0.0"
+				},
+				"parameters": {
+					"factoryName": {
+						"value": "[parameters('factoryName')]"
+					},
+					"sqlserver_linkedservice_connectionString": {
+						"value": "[parameters('sqlserver_linkedservice_connectionString')]"
+					},
+					"stage_storage_linkedservice_connectionString": {
+						"value": "[parameters('stage_storage_linkedservice_connectionString')]"
+					},
+					"akv_linkedservice_properties_typeProperties_baseUrl": {
+						"value": "[parameters('akv_linkedservice_properties_typeProperties_baseUrl')]"
+					},
+					"sftp_linkedservice_properties_typeProperties_host": {
+						"value": "[parameters('sftp_linkedservice_properties_typeProperties_host')]"
+					},
+					"sftp_linkedservice_properties_typeProperties_userName": {
+						"value": "[parameters('sftp_linkedservice_properties_typeProperties_userName')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}

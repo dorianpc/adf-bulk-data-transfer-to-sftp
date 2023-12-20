@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "azuredatafactory-937"
+		},
+		"sqlserver_linkedservice_connectionString": {
+			"value": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=;Initial Catalog=azuresqldb937;Server=tcp:azuresql-server-937.database.windows.net,1433;TrustServerCertificate=False;Authentication=\"Active Directory Default\""
+		},
+		"stage_storage_linkedservice_connectionString": {
+			"value": ""
+		},
+		"akv_linkedservice_properties_typeProperties_baseUrl": {
+			"value": "https://azurevault937.vault.azure.net/"
+		},
+		"sftp_linkedservice_properties_typeProperties_host": {
+			"value": "@{linkedService().Host}"
+		},
+		"sftp_linkedservice_properties_typeProperties_userName": {
+			"value": "@{linkedService().User}"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
