@@ -1,0 +1,11 @@
+{
+	"name": "sqlserver_linkedservice",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"annotations": [],
+		"type": "AzureSqlDatabase",
+		"typeProperties": {
+			"connectionString": "Server=tcp:azuresql-server-937.database.windows.net,1433;Initial Catalog=azuresqldb937;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;Authentication=\"Active Directory Default\";"
+		}
+	}
+}

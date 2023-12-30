@@ -1,0 +1,46 @@
+{
+	"name": "sql_to_storage_dataflow",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "db_data_source",
+						"type": "DatasetReference"
+					},
+					"name": "source1"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "storage_datafile_source",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [],
+			"scriptLines": [
+				"parameters{",
+				"     FileName as string,",
+				"     FileExtension as string,",
+				"     FileNamePostFixFormat as string,",
+				"     TextQualifier as string",
+				"}",
+				"source(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     format: 'table') ~> source1",
+				"source1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     partitionFileNames:[(concat($FileName, '_', $FileNamePostFixFormat, $FileExtension))],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     quoteAll: (iif($TextQualifier == '', false(), true())),",
+				"     partitionBy('hash', 1)) ~> sink1"
+			]
+		}
+	}
+}

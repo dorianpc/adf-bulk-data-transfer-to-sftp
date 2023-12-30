@@ -1,0 +1,76 @@
+{
+	"name": "sftp_datafile_sink",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "sftp_linkedservice",
+			"type": "LinkedServiceReference",
+			"parameters": {
+				"Host": {
+					"value": "@dataset().Host",
+					"type": "Expression"
+				},
+				"Port": {
+					"value": "@dataset().Port",
+					"type": "Expression"
+				},
+				"User": {
+					"value": "@dataset().User",
+					"type": "Expression"
+				},
+				"SecretName": {
+					"value": "@dataset().SecretName",
+					"type": "Expression"
+				}
+			}
+		},
+		"parameters": {
+			"Host": {
+				"type": "string"
+			},
+			"Port": {
+				"type": "int"
+			},
+			"User": {
+				"type": "string"
+			},
+			"SecretName": {
+				"type": "string"
+			},
+			"FileName": {
+				"type": "string"
+			},
+			"FileExtension": {
+				"type": "string"
+			},
+			"FileDelimeter": {
+				"type": "string"
+			},
+			"TextQualifier": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "DelimitedText",
+		"typeProperties": {
+			"location": {
+				"type": "SftpLocation",
+				"fileName": {
+					"value": "@dataset().FileName",
+					"type": "Expression"
+				}
+			},
+			"columnDelimiter": {
+				"value": "@dataset().FileDelimeter",
+				"type": "Expression"
+			},
+			"escapeChar": "\\",
+			"firstRowAsHeader": true,
+			"quoteChar": {
+				"value": "@dataset().TextQualifier",
+				"type": "Expression"
+			}
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

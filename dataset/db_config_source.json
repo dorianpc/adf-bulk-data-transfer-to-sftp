@@ -1,0 +1,97 @@
+{
+	"name": "db_config_source",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "sqlserver_linkedservice",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzureSqlTable",
+		"schema": [
+			{
+				"name": "ConfigID",
+				"type": "int",
+				"precision": 10
+			},
+			{
+				"name": "LoadStatus",
+				"type": "varchar"
+			},
+			{
+				"name": "RecordUpdateDate",
+				"type": "datetime",
+				"precision": 23,
+				"scale": 3
+			},
+			{
+				"name": "FileName",
+				"type": "varchar"
+			},
+			{
+				"name": "FileNamePostFixFormat",
+				"type": "varchar"
+			},
+			{
+				"name": "FileExtension",
+				"type": "varchar"
+			},
+			{
+				"name": "FileDelimeter",
+				"type": "varchar"
+			},
+			{
+				"name": "TextQualifier",
+				"type": "varchar"
+			},
+			{
+				"name": "FTPPath",
+				"type": "varchar"
+			},
+			{
+				"name": "FTPHost",
+				"type": "varchar"
+			},
+			{
+				"name": "FTPPort",
+				"type": "varchar"
+			},
+			{
+				"name": "FTPUser",
+				"type": "varchar"
+			},
+			{
+				"name": "FTPAzureVaultSecretName",
+				"type": "varchar"
+			},
+			{
+				"name": "AuditQuery",
+				"type": "varchar"
+			},
+			{
+				"name": "ExecutionQuery",
+				"type": "varchar"
+			},
+			{
+				"name": "StageTableSchema",
+				"type": "varchar"
+			},
+			{
+				"name": "StageTableName",
+				"type": "varchar"
+			},
+			{
+				"name": "IncludeTriggerFile",
+				"type": "bit"
+			},
+			{
+				"name": "IncludeCOTFile",
+				"type": "bit"
+			}
+		],
+		"typeProperties": {
+			"schema": "SalesLT",
+			"table": "vw_OutboundFilesConfig"
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

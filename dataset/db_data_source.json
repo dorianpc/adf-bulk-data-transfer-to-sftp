@@ -1,0 +1,31 @@
+{
+	"name": "db_data_source",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "sqlserver_linkedservice",
+			"type": "LinkedServiceReference"
+		},
+		"parameters": {
+			"StageTableName": {
+				"type": "string"
+			},
+			"StageTableSchema": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "AzureSqlTable",
+		"schema": [],
+		"typeProperties": {
+			"schema": {
+				"value": "@dataset().StageTableSchema",
+				"type": "Expression"
+			},
+			"table": {
+				"value": "@dataset().StageTableName",
+				"type": "Expression"
+			}
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

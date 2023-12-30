@@ -1,0 +1,19 @@
+{
+	"name": "stage_storage_linkedservice",
+	"properties": {
+		"annotations": [],
+		"type": "AzureBlobStorage",
+		"typeProperties": {
+			"connectionString": "DefaultEndpointsProtocol=https;AccountName=azurestoragestage937;EndpointSuffix=core.windows.net;",
+			"accountKey": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "akv_linkedservice",
+					"type": "LinkedServiceReference"
+				},
+				"secretName": "azurestoragestage937secret"
+			}
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/linkedservices"
+}
